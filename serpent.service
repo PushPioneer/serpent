@@ -1,0 +1,10 @@
+[Unit]
+Description=serpent task runner
+
+[Service]
+ExecStart=python3 /usr/serpent/runner.py
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
