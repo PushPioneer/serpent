@@ -2,16 +2,30 @@
 import os
 import sqlite3
 import argparse
+import logging
+from datetime import datetime
+
+logging.basicConfig(
+    filename='/var/serpent/serpent.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 connection = sqlite3.connect('/var/serpent/jobs.db')
 cursor = connection.cursor()
+
+
 supported_types = ['py','sh','bin']
 illegal_names = ['all']
 func_names = ['all']
-def register(name: str, delay: str, path: str, type: str):
+
+def register(name: str, delay: str, path: str, type: str, dependencies: str = None):
     if path.startswith('./'):
         path = os.getcwd() + path.replace('./','/')
+    logging.info(f"Registering new job: {name}")
     print(path)
     if type not in supported_types:
+        logging.error(f"Unsupported type: {type}")
         print('Type:',type,'not supported')
     else:
         if len(cursor.execute('select * from jobs where name=?',(name,)).fetchall()) == 0:
@@ -24,10 +38,23 @@ def register(name: str, delay: str, path: str, type: str):
             elif delay.endswith("d"):
                 delay = int(delay[:-1]) * 86400
             else:
+                logging.error(f"Invalid time format: {delay}")
                 print(f"Invalid time format: {delay}")
-            cursor.execute('insert into jobs values(?,?,?,0,?)',(name,delay,path,type))
+                return
+
+            if dependencies:
+                dep_list = [d.strip() for d in dependencies.split(',')]
+                for dep in dep_list:
+                    if not cursor.execute('select * from jobs where name=?', (dep,)).fetchone():
+                        logging.error(f"Dependency {dep} does not exist")
+                        print(f"Dependency {dep} does not exist")
+                        return
+
+            cursor.execute('insert into jobs values(?,?,?,0,?,?,NULL,NULL,NULL)',(name,delay,path,type,dependencies))
             connection.commit()
+            logging.info(f"Successfully registered job: {name}")
         else:
+            logging.warning(f"Job already exists: {name}")
             print('Job:',name,'already exists')
 
 
@@ -79,6 +106,7 @@ create_parser.add_argument('-n','--name',help='name of your process')
 create_parser.add_argument('-p','--path',help='path to file of your process')
 create_parser.add_argument('-d','--delay',help='delay after which your process will be rerun')
 create_parser.add_argument('-t','--type',help='file type of your process')
+create_parser.add_argument('--deps',help='comma-separated list of job dependencies')
 
 start_parser = subparsers.add_parser('enable', help='used to start a job')
 start_parser.add_argument('-n','--name',help='name of your process')
@@ -113,7 +141,7 @@ if command == 'create':
         c = 1
         print('error: missing type')
     if c == 0:
-        register(args.name,args.delay,args.path,args.type)
+        register(args.name,args.delay,args.path,args.type,args.deps)
         print(f'new job "{args.name}" added')
 
 elif command == 'enable':
